@@ -1,0 +1,57 @@
+# Compiled files
+*.class
+*.dex
+*.apk
+*.aab
+*.lock
+*.log
+
+# Gradle files
+.gradle/
+build/
+.gradle/wrapper/gradle-wrapper.jar
+!gradle-wrapper.jar
+
+# IDE files
+*.iml
+.idea/
+.DS_Store
+/.idea/caches/
+/.idea/libraries/
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+/.idea/misc.xml
+/.idea/deploymentTargetSelector.xml
+/.idea/compiler.xml
+/.idea/jarRepositories.xml
+/.idea/codeStyles/
+/.idea/runConfigurations/
+/.idea/shelf/
+/.idea/.name
+/.idea/deploymentTargetDropDown.xml
+
+# Local configuration
+/local.properties
+secrets.properties
+keystore.properties
+
+# Build outputs
+/captures
+.externalNativeBuild
+.cxx
+*.hprof
+
+# Signing keys (CRITICAL!)
+*.jks
+*.keystore
+*.pem
+*.pkcs12
+*.p12
+
+# OS files
+Thumbs.db
+
+# Android Studio 4.1+
+.idea/migrations.xml
