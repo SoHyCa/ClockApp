@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
                         onSendTimeClick = { sendCurrentTime() },
                         onCheckVpnClick = {
                             val isConnected = this.checkVpn()
-                            Toast.makeText(this, if (isConnected) "VPN подключен." else "VPN отключен.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, if (isConnected) "VPN подключен" else "VPN отключен", Toast.LENGTH_SHORT).show()
                         },
                         isConnected = ConnectionState.isConnected
                     )
