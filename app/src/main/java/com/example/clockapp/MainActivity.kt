@@ -38,6 +38,9 @@ import androidx.core.content.ContextCompat
 import com.example.clockapp.ui.theme.BleEsp32Theme
 import java.nio.ByteBuffer
 import java.util.UUID
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import androidx.annotation.RequiresPermission
 
 class MainActivity : ComponentActivity() {
 
@@ -74,6 +77,10 @@ class MainActivity : ComponentActivity() {
                     BleControlScreen(
                         onConnectClick = { checkPermissionsAndConnect() },
                         onSendTimeClick = { sendCurrentTime() },
+                        onCheckVpnClick = {
+                            val isConnected = this.checkVpn()
+                            Toast.makeText(this, if (isConnected) "VPN подключен" else "VPN отключен", Toast.LENGTH_SHORT).show()
+                        },
                         isConnected = ConnectionState.isConnected
                     )
                 }
@@ -104,6 +111,14 @@ class MainActivity : ComponentActivity() {
         } else {
             permissionLauncher.launch(missingPermissions.toTypedArray())
         }
+    }
+
+    @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
+    fun Context.checkVpn(): Boolean {
+        val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        val activeNetwork = connectivityManager.activeNetwork
+        val networkCapabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+        return networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
     }
 
     private fun connectToDevice() {
@@ -197,6 +212,7 @@ object ConnectionState {
 fun BleControlScreen(
     onConnectClick: () -> Unit,
     onSendTimeClick: () -> Unit,
+    onCheckVpnClick: () -> Unit,
     isConnected: Boolean
 ) {
     Column(
@@ -221,6 +237,11 @@ fun BleControlScreen(
             text = ConnectionState.statusText,
             style = MaterialTheme.typography.bodyLarge
         )
+        Button(
+            onClick = onCheckVpnClick,
+        ) {
+            Text("Статус подключения к VPN")
+        }
 
         if (isConnected) {
             Button(
@@ -229,6 +250,8 @@ fun BleControlScreen(
             ) {
                 Text("Отправить текущее время")
             }
+
         }
     }
 }
+
