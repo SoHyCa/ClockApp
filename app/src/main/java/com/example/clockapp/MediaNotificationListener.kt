@@ -37,7 +37,7 @@ class MediaNotificationListener : NotificationListenerService() {
                 // ИЛИ просто true, если уведомление активно
                 // isPlaying = true
 
-                Log.d("MediaListener", "🎵 $currentArtist - $currentTrack, Играет: $isPlaying")
+                Log.d("MediaListener", "$currentArtist - $currentTrack, Играет: $isPlaying")
             }
         }
     }
