@@ -1,12 +1,16 @@
 package com.example.clockapp
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -14,21 +18,34 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import com.example.clockapp.ble.BLEConnectionManager
-import com.example.clockapp.protocol.ProtocolField
+import com.example.clockapp.service.BleExchangeService
 import com.example.clockapp.state.ConnectionState
 import com.example.clockapp.ui.BleControlScreen
 import com.example.clockapp.ui.theme.BleEsp32Theme
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var bleManager: BLEConnectionManager
+    private var bleService: BleExchangeService? = null
+    private var bound = false
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val binder = service as BleExchangeService.LocalBinder
+            bleService = binder.getService()
+            bound = true
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            bleService = null
+            bound = false
+        }
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions.all { it.value }) {
-            bleManager.connect()
+            startAndConnectService()
         } else {
             Toast.makeText(this, "Необходимы разрешения", Toast.LENGTH_SHORT).show()
         }
@@ -36,13 +53,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        bleManager = BLEConnectionManager(this)
 
         setContent {
             BleEsp32Theme {
                 BleControlScreen(
                     onConnectClick = { checkPermissionsAndConnect() },
-                    onSendAllClick = { sendAllData() },
+                    onSendAllClick = {
+                        bleService?.sendAllData()
+                            ?: Toast.makeText(this, "Сервис не запущен", Toast.LENGTH_SHORT).show()
+                    },
                     onCheckVpnClick = {
                         val isVpn = checkVpn()
                         Toast.makeText(
@@ -69,6 +88,21 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermission()
     }
 
+    override fun onStart() {
+        super.onStart()
+        Intent(this, BleExchangeService::class.java).also { intent ->
+            bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (bound) {
+            unbindService(serviceConnection)
+            bound = false
+        }
+    }
+
     private fun requestNotificationPermission() {
         if (!NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)) {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
@@ -76,28 +110,44 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkPermissionsAndConnect() {
-        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             arrayOf(
                 Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.FOREGROUND_SERVICE,
+                Manifest.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.FOREGROUND_SERVICE
             )
         } else {
             arrayOf(
                 Manifest.permission.BLUETOOTH,
                 Manifest.permission.BLUETOOTH_ADMIN,
-                Manifest.permission.ACCESS_FINE_LOCATION
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.FOREGROUND_SERVICE
             )
         }
 
         val missing = permissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
         if (missing.isEmpty()) {
-            bleManager.connect()
+            startAndConnectService()
         } else {
             permissionLauncher.launch(missing.toTypedArray())
         }
+    }
+
+    private fun startAndConnectService() {
+        val intent = Intent(this, BleExchangeService::class.java).apply {
+            action = BleExchangeService.ACTION_CONNECT
+        }
+        ContextCompat.startForegroundService(this, intent)
     }
 
     private fun checkVpn(): Boolean {
@@ -113,26 +163,5 @@ class MainActivity : ComponentActivity() {
             MediaNotificationListener.currentArtist,
             MediaNotificationListener.isPlaying
         )
-    }
-
-    private fun sendAllData() {
-        val timestamp = (System.currentTimeMillis() / 1000).toUInt()
-        val vpn = checkVpn()
-        val (track, artist, isPlaying) = getCurrentMediaInfo()
-
-        val fields = mutableListOf<ProtocolField>()
-        fields.add(ProtocolField.UnixTime(timestamp))
-        fields.add(ProtocolField.Vpn(vpn))
-        if (track.isNotEmpty()) fields.add(ProtocolField.Playback(isPlaying))
-        if (artist.isNotEmpty()) fields.add(ProtocolField.Artist(artist))
-        if (track.isNotEmpty()) fields.add(ProtocolField.Track(track))
-
-        bleManager.sendFields(fields)
-        Toast.makeText(this, "Все данные отправлены", Toast.LENGTH_SHORT).show()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        bleManager.disconnect()
     }
 }

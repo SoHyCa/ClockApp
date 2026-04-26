@@ -9,15 +9,18 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import androidx.core.content.ContextCompat
-import com.example.clockapp.protocol.ProtocolEncoder
-import com.example.clockapp.protocol.ProtocolField
+import com.example.clockapp.protocol.*
 import com.example.clockapp.state.ConnectionState
 import java.util.UUID
 
-class BLEConnectionManager(private val context: Context) {
+class BLEConnectionManager(
+    private val context: Context,
+    private val dataProvider: DataProvider
+) {
     private val macAddress = "C8:F0:9E:F1:48:22"
     private val serviceUuid = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b")
     private val characteristicUuid = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8")
+    private val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     private var bluetoothAdapter: BluetoothAdapter
     private var bluetoothGatt: BluetoothGatt? = null
@@ -95,6 +98,28 @@ class BLEConnectionManager(private val context: Context) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 val service = gatt?.getService(serviceUuid)
                 writeCharacteristic = service?.getCharacteristic(characteristicUuid)
+                enableNotifications(gatt)
+            }
+        }
+
+        override fun onDescriptorWrite(
+            gatt: BluetoothGatt?,
+            descriptor: BluetoothGattDescriptor?,
+            status: Int
+        ) {
+            if (status == BluetoothGatt.GATT_SUCCESS && descriptor?.uuid == cccdUuid) {
+                Toast.makeText(context, "Уведомления включены", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt?,
+            characteristic: BluetoothGattCharacteristic?
+        ) {
+            val data = characteristic?.value ?: return
+            val result = ProtocolDecoder.processPacket(data)
+            if (result != null && result.isRequest) {
+                handleRequest(result.tags)
             }
         }
 
@@ -113,6 +138,39 @@ class BLEConnectionManager(private val context: Context) {
                     Toast.makeText(context, "Ошибка отправки", Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+    }
+
+    private fun enableNotifications(gatt: BluetoothGatt?) {
+        val char = writeCharacteristic ?: return
+        gatt?.setCharacteristicNotification(char, true)
+        val descriptor = char.getDescriptor(cccdUuid)
+        descriptor?.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        gatt?.writeDescriptor(descriptor)
+    }
+
+    private fun handleRequest(tags: List<Int>) {
+        val fields = mutableListOf<ProtocolField>()
+        for (tag in tags) {
+            when (tag) {
+                ProtocolConstants.REQ_TIME ->
+                    fields.add(ProtocolField.UnixTime(dataProvider.getUnixTime()))
+                ProtocolConstants.REQ_VPN ->
+                    fields.add(ProtocolField.Vpn(dataProvider.getVpnStatus()))
+                ProtocolConstants.REQ_PLAYBACK ->
+                    fields.add(ProtocolField.Playback(dataProvider.getPlaybackStatus()))
+                ProtocolConstants.REQ_ARTIST -> {
+                    val artist = dataProvider.getArtist()
+                    if (artist.isNotEmpty()) fields.add(ProtocolField.Artist(artist))
+                }
+                ProtocolConstants.REQ_TRACK -> {
+                    val track = dataProvider.getTrack()
+                    if (track.isNotEmpty()) fields.add(ProtocolField.Track(track))
+                }
+            }
+        }
+        if (fields.isNotEmpty()) {
+            sendFields(fields)
         }
     }
 
