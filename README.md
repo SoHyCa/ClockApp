@@ -1,4 +1,4 @@
-<img width="824" height="1280" alt="image" src="https://github.com/user-attachments/assets/7c05b749-a571-4b35-bc3a-36e6b1a086e8" />---
+---
 # ClockApp — BLE-шлюз для ESP32   
 Android-приложение на Kotlin с Jetpack Compose, которое собирает системную информацию с телефона и передаёт её на ESP32 по Bluetooth Low Energy через собственный бинарный протокол.   
  --- 
