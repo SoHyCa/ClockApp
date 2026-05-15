@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions.all { it.value }) {
-            startAndConnectService()
+            startBleService()
         } else {
             Toast.makeText(this, "Необходимы разрешения", Toast.LENGTH_SHORT).show()
         }
@@ -58,9 +58,13 @@ class MainActivity : ComponentActivity() {
             BleEsp32Theme {
                 BleControlScreen(
                     onConnectClick = { checkPermissionsAndConnect() },
-                    onSendAllClick = {
-                        bleService?.sendAllData()
-                            ?: Toast.makeText(this, "Сервис не запущен", Toast.LENGTH_SHORT).show()
+                    onForceConnectClick = {
+                        ensureServiceRunning()
+                        if (bound && bleService != null) {
+                            bleService!!.forceConnect()
+                        } else {
+                            Toast.makeText(this, "Сервис запускается, подождите...", Toast.LENGTH_SHORT).show()
+                        }
                     },
                     onCheckVpnClick = {
                         val isVpn = checkVpn()
@@ -137,16 +141,20 @@ class MainActivity : ComponentActivity() {
         }
 
         if (missing.isEmpty()) {
-            startAndConnectService()
+            startBleService()
         } else {
             permissionLauncher.launch(missing.toTypedArray())
         }
     }
 
-    private fun startAndConnectService() {
-        val intent = Intent(this, BleExchangeService::class.java).apply {
-            action = BleExchangeService.ACTION_CONNECT
-        }
+    private fun startBleService() {
+        val intent = Intent(this, BleExchangeService::class.java)
+        ContextCompat.startForegroundService(this, intent)
+        Toast.makeText(this, "Фоновый сервис запущен", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun ensureServiceRunning() {
+        val intent = Intent(this, BleExchangeService::class.java)
         ContextCompat.startForegroundService(this, intent)
     }
 

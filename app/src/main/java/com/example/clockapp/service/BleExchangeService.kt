@@ -11,20 +11,42 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.example.clockapp.MainActivity
 import com.example.clockapp.MediaNotificationListener
 import com.example.clockapp.R
 import com.example.clockapp.ble.BLEConnectionManager
 import com.example.clockapp.ble.DataProvider
-import com.example.clockapp.protocol.ProtocolField
 import com.example.clockapp.state.ConnectionState
 
 class BleExchangeService : Service(), DataProvider {
 
     private val binder = LocalBinder()
-    private lateinit var bleManager: BLEConnectionManager
+    private var bleManager: BLEConnectionManager? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    /** true — после успешного ручного подключения автоподключение активно */
+    private var autoConnectEnabled = false
+
+    /** Запускается ровно через 64 сек после разрыва */
+    private val reconnectRunnable = Runnable {
+        if (autoConnectEnabled && !ConnectionState.isConnected && !ConnectionState.isConnecting) {
+            ConnectionState.statusText = "Статус: Автопереподключение..."
+            doConnect()
+        }
+    }
+
+    private val disconnectRunnable = Runnable {
+        if (ConnectionState.isConnected) {
+            ConnectionState.statusText = "Статус: Таймаут запроса, отключение"
+            bleManager?.disconnect()
+        }
+    }
 
     inner class LocalBinder : Binder() {
         fun getService(): BleExchangeService = this@BleExchangeService
@@ -33,14 +55,14 @@ class BleExchangeService : Service(), DataProvider {
     override fun onCreate() {
         super.onCreate()
         startForeground(NOTIFICATION_ID, createNotification())
+        acquireWakeLock()
         bleManager = BLEConnectionManager(this, this)
+        bleManager?.setOnDisconnectedCallback {
+            handler.post { onDisconnected() }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_CONNECT -> bleManager.connect()
-            ACTION_DISCONNECT -> bleManager.disconnect()
-        }
         return START_STICKY
     }
 
@@ -48,37 +70,58 @@ class BleExchangeService : Service(), DataProvider {
 
     override fun onDestroy() {
         super.onDestroy()
-        bleManager.disconnect()
+        autoConnectEnabled = false
+        handler.removeCallbacks(disconnectRunnable)
+        handler.removeCallbacks(reconnectRunnable)
+        bleManager?.disconnect()
+        releaseWakeLock()
     }
 
-    fun connect() = bleManager.connect()
-    fun disconnect() = bleManager.disconnect()
-
-    fun sendAllData() {
-        if (!ConnectionState.isConnected) return
-        val timestamp = (System.currentTimeMillis() / 1000).toUInt()
-        val vpn = checkVpn()
-        val (track, artist, isPlaying) = getCurrentMediaInfo()
-
-        val fields = mutableListOf<ProtocolField>()
-        fields.add(ProtocolField.UnixTime(timestamp))
-        fields.add(ProtocolField.Vpn(vpn))
-        fields.add(ProtocolField.Playback(isPlaying))
-        if (artist.isNotEmpty()) fields.add(ProtocolField.Artist(artist))
-        if (track.isNotEmpty()) fields.add(ProtocolField.Track(track))
-
-        bleManager.sendFields(fields)
+    /** Ручное подключение по кнопке. При успехе включает автоподключение. */
+    fun forceConnect() {
+        handler.removeCallbacks(reconnectRunnable)
+        doConnect()
     }
 
-    // --- DataProvider (автоответ на запросы ESP32) ---
+    private fun doConnect() {
+        handler.removeCallbacks(reconnectRunnable)
+        if (ConnectionState.isConnected) {
+            bleManager?.disconnect()
+        }
+        ConnectionState.statusText = "Статус: Подключение..."
+        bleManager?.connect {
+            onConnected()
+        }
+    }
+
+    private fun onConnected() {
+        handler.removeCallbacks(disconnectRunnable)
+        handler.removeCallbacks(reconnectRunnable)
+        handler.postDelayed(disconnectRunnable, REQUEST_TIMEOUT_MS)
+
+        // Включаем автоподключение только после УСПЕШНОГО первого соединения
+        if (!autoConnectEnabled) {
+            autoConnectEnabled = true
+            updateNotification("Автоподключение активно")
+        }
+    }
+
+    /** Вызывается при любом разрыве */
+    private fun onDisconnected() {
+        handler.removeCallbacks(disconnectRunnable)
+        if (autoConnectEnabled && !ConnectionState.isConnected && !ConnectionState.isConnecting) {
+            ConnectionState.statusText = "Статус: Автоматический реконнект"
+            handler.postDelayed(reconnectRunnable, 64_000L)
+        } else if (!autoConnectEnabled) {
+            ConnectionState.statusText = "Статус: Отключено"
+        }
+    }
 
     override fun getUnixTime(): UInt = (System.currentTimeMillis() / 1000).toUInt()
     override fun getVpnStatus(): Boolean = checkVpn()
     override fun getPlaybackStatus(): Boolean = getCurrentMediaInfo().third
     override fun getArtist(): String = getCurrentMediaInfo().second
     override fun getTrack(): String = getCurrentMediaInfo().first
-
-    // --- Helpers ---
 
     private fun checkVpn(): Boolean {
         val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -95,7 +138,29 @@ class BleExchangeService : Service(), DataProvider {
         )
     }
 
-    private fun createNotification(): Notification {
+    private fun acquireWakeLock() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "ClockApp::BleExchangeWakeLock"
+        ).apply {
+            acquire(10 * 60 * 1000L)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let {
+            if (it.isHeld) it.release()
+        }
+        wakeLock = null
+    }
+
+    private fun updateNotification(text: String) {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(NOTIFICATION_ID, createNotification(text))
+    }
+
+    private fun createNotification(contentText: String = "Нажмите 'Подключиться' для первого соединения"): Notification {
         val channelId = "ble_exchange_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -103,7 +168,7 @@ class BleExchangeService : Service(), DataProvider {
                 "BLE Обмен",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Фоновое подключение к ESP32"
+                description = "Ожидание запросов от ESP32"
                 setShowBadge(false)
             }
             val nm = getSystemService(NotificationManager::class.java)
@@ -121,7 +186,7 @@ class BleExchangeService : Service(), DataProvider {
 
         return NotificationCompat.Builder(this, channelId)
             .setContentTitle("BLE-шлюз активен")
-            .setContentText("Ожидание подключения ESP32...")
+            .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
@@ -130,7 +195,6 @@ class BleExchangeService : Service(), DataProvider {
 
     companion object {
         const val NOTIFICATION_ID = 1
-        const val ACTION_CONNECT = "com.example.clockapp.CONNECT"
-        const val ACTION_DISCONNECT = "com.example.clockapp.DISCONNECT"
+        const val REQUEST_TIMEOUT_MS = 10_000L
     }
 }
