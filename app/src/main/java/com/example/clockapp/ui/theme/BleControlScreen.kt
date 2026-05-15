@@ -17,7 +17,7 @@ import com.example.clockapp.state.ConnectionState
 @Composable
 fun BleControlScreen(
     onConnectClick: () -> Unit,
-    onSendAllClick: () -> Unit,
+    onForceConnectClick: () -> Unit,
     onCheckVpnClick: () -> Unit,
     onGetMediaClick: () -> Unit,
     isConnected: Boolean
@@ -29,23 +29,21 @@ fun BleControlScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
     ) {
-        Button(
-            onClick = onConnectClick,
-            enabled = !ConnectionState.isConnecting
-        ) {
-            Text(
-                text = when {
-                    ConnectionState.isConnecting -> "Подключение..."
-                    isConnected -> "Подключено"
-                    else -> "Подключиться к ESP32"
-                }
-            )
+        Button(onClick = onConnectClick) {
+            Text("Запустить фоновый сервис")
         }
 
         Text(
             text = ConnectionState.statusText,
             style = MaterialTheme.typography.bodyLarge
         )
+
+        Button(
+            onClick = onForceConnectClick,
+            enabled = !ConnectionState.isConnecting
+        ) {
+            Text("Подключиться сейчас")
+        }
 
         Button(onClick = onCheckVpnClick) {
             Text("Статус подключения к VPN")
@@ -56,12 +54,10 @@ fun BleControlScreen(
         }
 
         if (isConnected) {
-            Button(
-                onClick = onSendAllClick,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Отправить всё")
-            }
+            Text(
+                text = "Подключено к часам",
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }

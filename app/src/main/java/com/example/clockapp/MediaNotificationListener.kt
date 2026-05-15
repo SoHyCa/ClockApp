@@ -20,7 +20,6 @@ class MediaNotificationListener : NotificationListenerService() {
             var title = extras.getString(android.app.Notification.EXTRA_TITLE)
             val text = extras.getString(android.app.Notification.EXTRA_TEXT)
 
-            // Определяем статус по наличию кнопки "Пауза" в уведомлении
             val actions = sbn.notification.actions
             val hasPauseButton = actions?.any { action ->
                 action.title?.toString()?.contains("Пауза") == true ||
@@ -33,9 +32,7 @@ class MediaNotificationListener : NotificationListenerService() {
                 }
                 currentTrack = title
                 currentArtist = text ?: ""
-                isPlaying = hasPauseButton  // Если есть кнопка паузы - значит играет
-                // ИЛИ просто true, если уведомление активно
-                // isPlaying = true
+                isPlaying = hasPauseButton
 
                 Log.d("MediaListener", "$currentArtist - $currentTrack, Играет: $isPlaying")
             }

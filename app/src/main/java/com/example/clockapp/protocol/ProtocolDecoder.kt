@@ -13,6 +13,12 @@ data class ParsedMessage(
 )
 
 object ProtocolDecoder {
+    const val REQ_TIME = 0x11
+    const val REQ_VPN = 0x12
+    const val REQ_PLAYBACK = 0x13
+    const val REQ_ARTIST = 0x14
+    const val REQ_TRACK = 0x15
+
     private const val MAX_MESSAGE_SIZE = 4096
     private const val REASSEMBLY_TIMEOUT_MS = 5000L
 
@@ -69,11 +75,7 @@ object ProtocolDecoder {
                         i += 1
                     }
                 }
-                ProtocolConstants.REQ_TIME,
-                ProtocolConstants.REQ_VPN,
-                ProtocolConstants.REQ_PLAYBACK,
-                ProtocolConstants.REQ_ARTIST,
-                ProtocolConstants.REQ_TRACK -> i += 1
+                REQ_TIME, REQ_VPN, REQ_PLAYBACK, REQ_ARTIST, REQ_TRACK -> i += 1
                 else -> i += 1
             }
         }
@@ -106,11 +108,6 @@ object ProtocolDecoder {
             return null
         }
 
-        if (header.fragOffset + header.payloadLen > MAX_MESSAGE_SIZE) {
-            resetReassembly()
-            return null
-        }
-
         reassembly.buffer?.let { buf ->
             System.arraycopy(payload, 0, buf, header.fragOffset, header.payloadLen)
             if (header.fragOffset + header.payloadLen > reassembly.receivedLen) {
@@ -128,13 +125,5 @@ object ProtocolDecoder {
         } else {
             null
         }
-    }
-
-    fun checkTimeout(): Boolean {
-        if (reassembly.active && (System.currentTimeMillis() - reassembly.startTime > REASSEMBLY_TIMEOUT_MS)) {
-            resetReassembly()
-            return true
-        }
-        return false
     }
 }
