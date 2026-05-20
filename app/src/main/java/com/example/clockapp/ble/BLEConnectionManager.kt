@@ -20,7 +20,7 @@ class BLEConnectionManager(
     private val dataProvider: DataProvider
 ) {
     private val tag = "BLEConnectionManager"
-    private val macAddress = "A4:CB:8F:20:E6:9E"
+    private val macAddress = "A4:CB:8F:22:74:0A"
     private val serviceUuid = UUID.fromString("4fafc201-1fb5-459e-8fcc-c5c9c331914b")
     private val characteristicUuid = UUID.fromString("beb5483e-36e1-4688-b7f5-ea07361b26a8")
     private val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -28,6 +28,11 @@ class BLEConnectionManager(
     private var onDisconnectedCallback: (() -> Unit)? = null
     fun setOnDisconnectedCallback(callback: () -> Unit) {
         onDisconnectedCallback = callback
+    }
+
+    private var onRequestReceivedCallback: (() -> Unit)? = null
+    fun setOnRequestReceivedCallback(callback: () -> Unit) {
+        onRequestReceivedCallback = callback
     }
     private var bluetoothAdapter: BluetoothAdapter
     private var bluetoothGatt: BluetoothGatt? = null
@@ -248,6 +253,9 @@ class BLEConnectionManager(
                 }
             }
         }
+
+        // Уведомляем сервис о входящем запросе (для сброса таймаута)
+        onRequestReceivedCallback?.invoke()
 
         if (fields.isNotEmpty()) {
             Log.i(tag, "Sending response with ${fields.size} field(s)")
