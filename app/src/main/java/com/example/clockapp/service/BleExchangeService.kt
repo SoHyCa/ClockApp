@@ -60,6 +60,9 @@ class BleExchangeService : Service(), DataProvider {
         bleManager?.setOnDisconnectedCallback {
             handler.post { onDisconnected() }
         }
+        bleManager?.setOnRequestReceivedCallback {
+            handler.post { onRequestReceived() }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -97,13 +100,19 @@ class BleExchangeService : Service(), DataProvider {
     private fun onConnected() {
         handler.removeCallbacks(disconnectRunnable)
         handler.removeCallbacks(reconnectRunnable)
-        handler.postDelayed(disconnectRunnable, REQUEST_TIMEOUT_MS)
+        // Таймер НЕ запускаем здесь — он стартует только при первом запросе от ESP32
 
         // Включаем автоподключение только после УСПЕШНОГО первого соединения
         if (!autoConnectEnabled) {
             autoConnectEnabled = true
             updateNotification("Автоподключение активно")
         }
+    }
+
+    /** Вызывается при каждом входящем запросе — сбрасывает таймаут отключения */
+    private fun onRequestReceived() {
+        handler.removeCallbacks(disconnectRunnable)
+        handler.postDelayed(disconnectRunnable, REQUEST_TIMEOUT_MS)
     }
 
     /** Вызывается при любом разрыве */
@@ -195,6 +204,6 @@ class BleExchangeService : Service(), DataProvider {
 
     companion object {
         const val NOTIFICATION_ID = 1
-        const val REQUEST_TIMEOUT_MS = 10_000L
+        const val REQUEST_TIMEOUT_MS = 200_000L
     }
 }
